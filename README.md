@@ -37,7 +37,7 @@ pip install -r requirement.txt
 The following script can be used to download and prepare the AVA dataset for training.
 
 ```
-python trainTalkNet.py --dataPathAVA AVADataPath --download 
+python trainTalkNet.py --dataPathAVA /home/xingliu/Datasets/AVADataPath --download 
 ```
 
 `AVADataPath` is the folder you want to save the AVA dataset and its preprocessing outputs, the details can be found in [here](https://github.com/TaoRuijie/TalkNet_ASD/blob/main/utils/tools.py#L34) . Please read them carefully.

@@ -1,5 +1,8 @@
 import os, subprocess, glob, pandas, tqdm, cv2, numpy
 from scipy.io import wavfile
+import warnings
+
+warnings.filterwarnings("ignore")
 
 def init_args(args):
     # The details for the following folders/files can be found in the annotation of the function 'preprocess_AVA' below
@@ -65,10 +68,10 @@ def preprocess_AVA(args):
     #     └── trainval
     # ```
 
-    download_csv(args) # Take 1 minute 
-    download_videos(args) # Take 6 hours
-    extract_audio(args) # Take 1 hour
-    extract_audio_clips(args) # Take 3 minutes
+    # download_csv(args) # Take 1 minute 
+    # download_videos(args) # Take 6 hours
+    # extract_audio(args) # Take 1 hour
+    #extract_audio_clips(args) # Take 3 minutes
     extract_video_clips(args) # Take about 2 days
 
 def download_csv(args): 
@@ -80,7 +83,7 @@ def download_csv(args):
     subprocess.call(cmd, shell=True, stdout=None)
     os.remove(args.dataPathAVA + '/csv.tar.gz')
 
-def download_videos(args): 
+def download_videos(args): # args.visualOrigPathAVA: '/home/xingliu/Datasets/AVADataPath/orig_videos'
     # Take 6 hours to download the original movies, follow this repository: https://github.com/cvdfoundation/ava-dataset
     for dataType in ['trainval', 'test']:
         fileList = open('%s/%s_file_list.txt'%(args.trialPathAVA, dataType)).read().splitlines()   
@@ -118,11 +121,16 @@ def extract_audio_clips(args):
         audioFeatures = {}
         outDir = os.path.join(args.audioPathAVA, dataType)
         audioDir = os.path.join(args.audioOrigPathAVA, dic[dataType])
+        num_folders = 0
         for l in df['video_id'].unique().tolist():
             d = os.path.join(outDir, l[0])
             if not os.path.isdir(d):
                 os.makedirs(d)
+                num_folders +=1
+        print(num_folders)     
+        num_audios = 0   
         for entity in tqdm.tqdm(entityList, total = len(entityList)):
+            print(num_audios)
             insData = df.get_group(entity)
             videoKey = insData.iloc[0]['video_id']
             start = insData.iloc[0]['frame_timestamp']
@@ -136,15 +144,17 @@ def extract_audio_clips(args):
             audioStart = int(float(start)*sr)
             audioEnd = int(float(end)*sr)
             audioData = audioFeatures[videoKey][audioStart:audioEnd]
+            num_audios+=1
             wavfile.write(insPath, sr, audioData)
-
+        print('finished ', dataType)
 def extract_video_clips(args):
     # Take about 2 days to crop the face clips.
     # You can optimize this code to save time, while this process is one-time.
     # If you do not need the data for the test set, you can only deal with the train and val part. That will take 1 day.
     # This procession may have many warning info, you can just ignore it.
     dic = {'train':'trainval', 'val':'trainval', 'test':'test'}
-    for dataType in ['train', 'val', 'test']:
+    for dataType in ['val']:
+        print(dataType)
         df = pandas.read_csv(os.path.join(args.trialPathAVA, '%s_orig.csv'%(dataType)))
         dfNeg = pandas.concat([df[df['label_id'] == 0], df[df['label_id'] == 2]])
         dfPos = df[df['label_id'] == 1]

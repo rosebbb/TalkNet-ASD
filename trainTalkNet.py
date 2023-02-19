@@ -1,8 +1,12 @@
+
 import time, os, torch, argparse, warnings, glob
 
 from dataLoader import train_loader, val_loader
 from utils.tools import *
 from talkNet import talkNet
+import warnings
+
+warnings.filterwarnings("ignore")
 
 def main():
     # The structure of this code is learnt from https://github.com/clovaai/voxceleb_trainer
@@ -17,7 +21,7 @@ def main():
     parser.add_argument('--batchSize',    type=int,   default=2500,  help='Dynamic batch size, default is 2500 frames, other batchsize (such as 1500) will not affect the performance')
     parser.add_argument('--nDataLoaderThread', type=int, default=4,  help='Number of loader threads')
     # Data path
-    parser.add_argument('--dataPathAVA',  type=str, default="/data08/AVA", help='Save path of AVA dataset')
+    parser.add_argument('--dataPathAVA',  type=str, default="/home/xingliu/Datasets/AVADataPath", help='Save path of AVA dataset')
     parser.add_argument('--savePath',     type=str, default="exps/exp1")
     # Data selection
     parser.add_argument('--evalDataType', type=str, default="val", help='Only for AVA, to choose the dataset for evaluation, val or test')
@@ -28,6 +32,7 @@ def main():
     # Data loader
     args = init_args(args)
 
+    args.downloadAVA = True
     if args.downloadAVA == True:
         preprocess_AVA(args)
         quit()
