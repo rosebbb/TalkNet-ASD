@@ -23,6 +23,7 @@ def asd(s, videoFeature, audioFeature):  # 1 sec of audio and video
         score = s.lossAV.forward(out, labels = None)
     return score
 
+
 def crop_face(frame, bbox, cs = 0.40):
     bs  = max((bbox[3]-bbox[1]), (bbox[2]-bbox[0]))/2  # Detection box size
     bsi = int(bs * (1 + 2 * cs))  # Pad videos by this amount 
@@ -40,6 +41,7 @@ def crop_face(frame, bbox, cs = 0.40):
     face = face[int(112-(112/2)):int(112+(112/2)), int(112-(112/2)):int(112+(112/2))]
     return face
 
+
 def bb_intersection_over_union(boxA, boxB, evalCol = False):
     # CPU: IOU Function to calculate overlap between two image
     xA = max(boxA[0], boxB[0])
@@ -54,28 +56,8 @@ def bb_intersection_over_union(boxA, boxB, evalCol = False):
     else:
         iou = interArea / float(boxAArea + boxBArea - interArea)
     return iou
-
-def image_preprocess(image, target_size, gt_boxes=None):
-    ih, iw    = target_size
-    h,  w, _  = image.shape
-
-    scale = min(iw/w, ih/h)
-    nw, nh  = int(scale * w), int(scale * h)
-    image_resized = cv2.resize(image, (nw, nh))
-
-    image_paded = np.full(shape=[ih, iw, 3], fill_value=128.0)
-    dw, dh = (iw - nw) // 2, (ih-nh) // 2
-    image_paded[dh:nh+dh, dw:nw+dw, :] = image_resized
-    image_paded = image_paded / 255.
-
-    if gt_boxes is None:
-        return image_paded
-
-    else:
-        gt_boxes[:, [0, 2]] = gt_boxes[:, [0, 2]] * scale + dw
-        gt_boxes[:, [1, 3]] = gt_boxes[:, [1, 3]] * scale + dh
-        return image_paded, gt_boxes
     
+
 def box_color(iperson):
     color = (iperson, iperson*30, iperson*2*30)
     return color
@@ -95,6 +77,7 @@ def person_detect_mp(Original_frames, Predicted_boxes, Processing_times): # need
             pred_bboxes = DET.detect_faces(frame, conf_th=0.9, scales=[0.25])
             Predicted_boxes.put({'frame': frame, 'pred_bboxes': pred_bboxes, 'frame_idx': frame_idx})
 
+
 def postprocess_mp(Predicted_boxes, Processed_frames):
     while True:
         if Predicted_boxes.qsize()>0:
@@ -109,27 +92,6 @@ def postprocess_mp(Predicted_boxes, Processed_frames):
                 cv2.rectangle(frame, (int(bbox[0]),int(bbox[1])), (int(bbox[2]),int(bbox[3])), (0, 255, 0),10)
 
             Processed_frames.put({'frame': frame, 'frame_idx': frame_idx})
-
-# def asd_mp(Original_frames):
-#     global max_person_id, seq_faces, seq_boxes, Predicted_asd
-
-#     s = talkNet()
-#     s.loadParameters('pretrain_TalkSet.model')
-#     s.eval()
-
-#     for iface, seq_box in enumerate(seq_boxes):
-#         if len(seq_box) == 25:
-#             print('asd activated ')
-#             videoFeature_seq = seq_faces[iface]
-#             videoFeature_seq = np.array(videoFeature_seq)
-#             videoFeature_seq = videoFeature_seq.squeeze()
-#             audioFeature_seq = audioFeature[(iframe-25)*4:(iframe-1)*4+4]
-#             scores = asd(s, videoFeature_seq, audioFeature_seq)
-#             print('person id, scores ', seq_box[-1]['id'], scores)
-#             bbox = seq_box[-1]['bbox']
-#             face_id = seq_box[-1]['face_id']
-#             final_score = np.mean(scores[-5:])
-#             Predicted_asd[face_id] = {'bbox': bbox, 'score': final_score}
 
 def detect_video_realtime_mp(cam_id, output_path, show=True, realtime=False):
     cap = cv2.VideoCapture(cam_id)
@@ -212,7 +174,7 @@ def detect_video_realtime_mp(cam_id, output_path, show=True, realtime=False):
     cv2.destroyAllWindows()
 
 if __name__ == "__main__": 
-    # cam_id = '/data/Projects/TalkNet-ASD/demo/test/pyavi/video.avi'
-    cam_id= 1
+    cam_id = '/data/Projects/TalkNet-ASD/demo/test/pyavi/video.avi'
+    # cam_id= 1
     output_path = './temp/'
     detect_video_realtime_mp(cam_id, output_path, show=True, realtime=False)

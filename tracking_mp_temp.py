@@ -95,88 +95,15 @@ def person_detect_mp(Original_frames, Predicted_boxes, Processing_times): # need
             pred_bboxes = DET.detect_faces(frame, conf_th=0.9, scales=[0.25])
             Predicted_boxes.put({'frame': frame, 'pred_bboxes': pred_bboxes, 'frame_idx': frame_idx})
             print(Predicted_boxes.qsize())
-            
-def tracking_mp(Predicted_boxes, Tracked_frames):
-    global max_person_id, seq_faces, seq_boxes
-    print('-------2------- Running tracking on frame:', Predicted_boxes.qsize())
+            print('-------1------- resulting predicted boxes:', Predicted_boxes.qsize())
 
-    while True:
-        print('-------2------- Running tracking on frame:', Predicted_boxes.qsize())
-
-        if Predicted_boxes.qsize()>0:
-            item = Predicted_boxes.get()
-            frame = item['frame']
-            pred_bboxes = item['pred_bboxes']
-            frame_idx = item['frame_idx']
-
-            person_ids = []
-            if frame_idx == 0: # first frame
-                for iperson, bbox in enumerate(pred_bboxes):
-                    bbox = bbox.tolist()
-                    box_per_person = deque([], 25)
-                    box_per_person.append({'bbox': bbox, 'face_id': iperson, 'frameidx': frame_idx})
-                    seq_boxes.append(box_per_person)
-
-                    face = crop_face(frame, bbox)
-                    face_per_person = deque([], 25)
-                    face_per_person.append(face)
-                    seq_faces.append(face_per_person)
-
-                    person_ids.append(iperson)
-                max_person_id = iperson
-            else:
-                # Step 2: remove all discontinued faces in seq_boxes and seq_faces
-                iperson = 0
-                while True:
-                    if iperson >= len(seq_boxes):
-                        break
-                    seq_box = seq_boxes[iperson]
-                    seq_face = seq_faces[iperson]
-                    frameidx_last = seq_box[-1]['frameidx']
-                    if frame_idx - frameidx_last > 5: # discontinued, remove
-                        seq_boxes.remove(seq_box) ### not sure
-                        seq_faces.remove(seq_face) ### not sure
-                        print(len(seq_boxes), num_person)
-                        assert(len(seq_boxes) == num_person-1)
-                        num_person = len(seq_boxes)
-                    else:
-                        iperson += 1
-                # Step 3: Match
-                for iperson, bbox in enumerate(pred_bboxes):
-                    bbox = bbox.tolist()
-                    face = crop_face(frame, bbox)
-                    matched = False
-                    for iperson, seq_box in enumerate(seq_boxes):
-                        if matched == True: # no more matching, assuming only one matching(no overlapping)
-                            break
-                        last_box = seq_box[-1]['bbox']
-                        person_id = seq_box[-1]['id']
-                        iou = bb_intersection_over_union(bbox, last_box)
-                        if iou > 0.5:
-                            matched = True
-                            seq_boxes[iperson].append({'bbox': bbox, 'face_id': person_id,'frameidx': frame_idx})
-                            seq_faces[iperson].append(face)
-                        
-                    if matched == False: # new person
-                        box_per_person = deque([], 25)
-                        person_id = max_person_id
-                        box_per_person.append({'bbox': bbox, 'face_id': person_id,'frameidx': frame_idx})
-                        seq_boxes.append(box_per_person)
-
-                        face_per_person = deque([], 25)
-                        face_per_person.append(face)
-                        seq_faces.append(face_per_person)
-                        max_person_id += 1
-                    person_ids.append(person_id)
-
-        Tracked_frames.put({'frame': frame, 'pred_bboxes': pred_bboxes, 'frame_idx': frame_idx, 'person_ids': person_ids})
-
-def postprocess_mp(Predicted_boxes, Processed_frames, Asd_seq_data, seq_faces, seq_boxes):
+def postprocess_mp(Predicted_boxes, Processed_frames, Asd_seq_data):
     global max_person_id
 
     while True:
+        # print('-------2------- Running tracking on frame:', Predicted_boxes.qsize())
+
         if Predicted_boxes.qsize()>0:
-            print('-------2------- Running tracking on frame:', Predicted_boxes.qsize())
             item = Predicted_boxes.get()
             frame_idx = item['frame_idx']
             frame = item['frame']
@@ -188,7 +115,7 @@ def postprocess_mp(Predicted_boxes, Processed_frames, Asd_seq_data, seq_faces, s
                     bbox = bbox.tolist()
                     face = crop_face(frame, bbox)
                     current_face_info = deque([], 25)
-                    current_face_info.append({'frameidx': frame_idx, 'bbox': bbox, 'face', face})
+                    current_face_info.append({'frameidx': frame_idx, 'bbox': bbox, 'face': face})
                     face_seq_info[iperson] = current_face_info
                     cv2.rectangle(frame, (int(bbox[0]),int(bbox[1])), (int(bbox[2]),int(bbox[3])), box_color(iperson),10)
                     cv2.putText(frame,'%d'%(iperson), (int(bbox[0])+10,int(bbox[1])+10), cv2.FONT_HERSHEY_SIMPLEX, 1.5, box_color(iperson),5)
@@ -214,25 +141,21 @@ def postprocess_mp(Predicted_boxes, Processed_frames, Asd_seq_data, seq_faces, s
                         iou = bb_intersection_over_union(bbox, last_face_bbox)
                         if iou > 0.5:
                             matched = True
-                            face_seq_info[person_id].append({'frameidx': frame_idx, 'bbox': bbox, 'face', face})
+                            face_seq_info[person_id].append({'frameidx': frame_idx, 'bbox': bbox, 'face': face})
                             cv2.rectangle(frame, (int(bbox[0]),int(bbox[1])), (int(bbox[2]),int(bbox[3])), box_color(person_id),10)
                             cv2.putText(frame,'%d'%(person_id), (int(bbox[0])+10,int(bbox[1])+10), cv2.FONT_HERSHEY_SIMPLEX, 1.5, box_color(person_id),5)
                             Asd_seq_data.put(face_seq_info)
                     if matched == False: # new person
                         max_person_id+=1
                         current_face_info = deque([], 25)
-                        current_face_info.append({'frameidx': frame_idx, 'bbox': bbox, 'face', face})
+                        current_face_info.append({'frameidx': frame_idx, 'bbox': bbox, 'face': face})
                         face_seq_info[max_person_id] = current_face_info
                         cv2.rectangle(frame, (int(bbox[0]),int(bbox[1])), (int(bbox[2]),int(bbox[3])), box_color(max_person_id),10)
                         cv2.putText(frame,'%d'%(max_person_id), (int(bbox[0])+10,int(bbox[1])+10), cv2.FONT_HERSHEY_SIMPLEX, 1.5, box_color(max_person_id),5)
 
                         Asd_seq_data.put(face_seq_info)
 
-            frame_idx = item['frame_idx']
-            frame = item['frame']
-            pred_bboxes = item['pred_bboxes']
-
-            Processed_frames.put({'frame': frame, 'frame_idx': frame_idx})
+            Processed_frames.put({'frame': frame, 'frame_idx': frame_idx, 'pred_bboxes': pred_bboxes})
 
 def detect_video_realtime_mp(cam_id, output_path, show=True, realtime=False):
 
@@ -258,7 +181,8 @@ def detect_video_realtime_mp(cam_id, output_path, show=True, realtime=False):
     max_person_id = -1    
     p1 = Process(target=person_detect_mp, args=(Original_frames, Predicted_boxes, Processing_times))
     # p2 = Process(target=tracking_mp, args=(Predicted_boxes, Tracked_frames))
-    p3 = Process(target=postprocess_mp, args=(Predicted_boxes, Processed_frames, Asd_seq_data, seq_faces, seq_boxes))
+    p3 = Process(target=postprocess_mp, args=(Predicted_boxes, Processed_frames, Asd_seq_data))
+    
     p1.start()
     # p2.start()
     p3.start()
@@ -290,6 +214,8 @@ def detect_video_realtime_mp(cam_id, output_path, show=True, realtime=False):
                 if cv2.waitKey(25) & 0xFF == ord("q"):
                     cv2.destroyAllWindows()
                     break
+            else:
+                cv2.imwrite(f'multiprocess_result/exp1/{frame_idx}.jpg', frame)
 
         while started == False and Original_frames.qsize()>0:
             if Processed_frames.qsize() == 0:
@@ -316,7 +242,7 @@ def detect_video_realtime_mp(cam_id, output_path, show=True, realtime=False):
     cv2.destroyAllWindows()
 
 if __name__ == "__main__": 
-    # cam_id = '/data/Projects/TalkNet-ASD/demo/test/pyavi/video.avi'
-    cam_id= -1
+    cam_id = '/data/Projects/TalkNet-ASD/demo/test/pyavi/video.avi'
+    # cam_id= -1
     output_path = './temp/'
     detect_video_realtime_mp(cam_id, output_path, show=True, realtime=False)
