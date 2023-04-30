@@ -90,14 +90,15 @@ class train_loader(object):
     def __init__(self, trialFileName, audioPath, visualPath, batchSize, **kwargs):
         self.audioPath  = audioPath
         self.visualPath = visualPath
-        self.miniBatch = []      
-        mixLst = open(trialFileName).read().splitlines()
+        self.miniBatch = []
+        self.fixed_input_length = kwargs['fixed_input_length']
+        mixLst = open(trialFileName).read().splitlines() # 29723
         # sort the training set by the length of the videos, shuffle them to make more videos in the same batch belong to different movies
         sortedMixLst = sorted(mixLst, key=lambda data: (int(data.split('\t')[1]), int(data.split('\t')[-1])), reverse=True)         
         start = 0        
         while True:
           length = int(sortedMixLst[start].split('\t')[1])
-          end = min(len(sortedMixLst), start + max(int(batchSize / length), 1))
+          end = min(len(sortedMixLst), start + max(int(batchSize / length), 1)) # approx 2500 frames per batch
           self.miniBatch.append(sortedMixLst[start:end])
           if end == len(sortedMixLst):
               break
@@ -108,14 +109,33 @@ class train_loader(object):
         numFrames   = int(batchList[-1].split('\t')[1])
         audioFeatures, visualFeatures, labels = [], [], []
         audioSet = generate_audio_set(self.audioPath, batchList) # load the audios in this batch to do augmentation
+        end_frames = []
+        # print(f'number of clips in {index}th batch: {len(batchList)}')
         for line in batchList:
             data = line.split('\t')            
             audioFeatures.append(load_audio(data, self.audioPath, numFrames, audioAug = True, audioSet = audioSet))  
             visualFeatures.append(load_visual(data, self.visualPath,numFrames, visualAug = True))
             labels.append(load_label(data, numFrames))
+        if self.fixed_input_length != 0:
+            audioFeatures, visualFeatures, labels = self.fix_input_length(audioFeatures, visualFeatures, labels)
+        # print('Final number of clips: ', len(visualFeatures))
         return torch.FloatTensor(numpy.array(audioFeatures)), \
                torch.FloatTensor(numpy.array(visualFeatures)), \
                torch.LongTensor(numpy.array(labels))        
+
+    def fix_input_length(self, audioFeatures, visualFeatures, labels):
+        num_clips = len(audioFeatures)
+        audioFeatures_new, visualFeatures_new, labels_new = [], [], []
+        for iclip in range(num_clips):
+            num_frames = len(visualFeatures[iclip])
+            num_short_clips = num_frames // self.fixed_input_length
+            for i in range(num_short_clips):
+                start, end = i*self.fixed_input_length, (i+1)*self.fixed_input_length
+                visualFeatures_new.append(visualFeatures[iclip][start:end])
+                labels_new.append(labels[iclip][start:end])
+                start, end = i*self.fixed_input_length*4, (i+1)*self.fixed_input_length*4
+                audioFeatures_new.append(audioFeatures[iclip][start:end])
+        return audioFeatures_new, visualFeatures_new, labels_new
 
     def __len__(self):
         return len(self.miniBatch)
@@ -125,7 +145,8 @@ class val_loader(object):
     def __init__(self, trialFileName, audioPath, visualPath, **kwargs):
         self.audioPath  = audioPath
         self.visualPath = visualPath
-        self.miniBatch = open(trialFileName).read().splitlines()
+        self.miniBatch = open(trialFileName).read().splitlines() # 8015 clips
+        self.fixed_input_length = kwargs['fixed_input_length']
 
     def __getitem__(self, index):
         line       = [self.miniBatch[index]]
@@ -135,9 +156,25 @@ class val_loader(object):
         audioFeatures = [load_audio(data, self.audioPath, numFrames, audioAug = False, audioSet = audioSet)]
         visualFeatures = [load_visual(data, self.visualPath,numFrames, visualAug = False)]
         labels = [load_label(data, numFrames)]         
+        if self.fixed_input_length != 0:
+            audioFeatures, visualFeatures, labels = self.fix_input_length(audioFeatures, visualFeatures, labels)
+
         return torch.FloatTensor(numpy.array(audioFeatures)), \
                torch.FloatTensor(numpy.array(visualFeatures)), \
                torch.LongTensor(numpy.array(labels))
 
+    def fix_input_length(self, audioFeatures, visualFeatures, labels):
+        num_clips = len(audioFeatures)
+        audioFeatures_new, visualFeatures_new, labels_new = [], [], []
+        for iclip in range(num_clips):
+            num_frames = len(visualFeatures[iclip])
+            num_short_clips = num_frames // self.fixed_input_length
+            for i in range(num_short_clips):
+                start, end = i*self.fixed_input_length, (i+1)*self.fixed_input_length
+                visualFeatures_new.append(visualFeatures[iclip][start:end])
+                labels_new.append(labels[iclip][start:end])
+                start, end = i*self.fixed_input_length*4, (i+1)*self.fixed_input_length*4
+                audioFeatures_new.append(audioFeatures[iclip][start:end])
+        return audioFeatures_new, visualFeatures_new, labels_new
     def __len__(self):
         return len(self.miniBatch)

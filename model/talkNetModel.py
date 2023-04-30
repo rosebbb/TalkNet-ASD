@@ -30,6 +30,7 @@ class talkNetModel(nn.Module):
         B, T, W, H = x.shape  
         x = x.view(B*T, 1, 1, W, H)
         x = (x / 255 - 0.4161) / 0.1688
+        # print(x.shape)
         x = self.visualFrontend(x)
         x = x.view(B, T, 512)        
         x = x.transpose(1,2)     

@@ -121,3 +121,5 @@ temp/
 tracking/
 tracking2/
 colDataPath/
+multiprocess_result/
+prediction_file/

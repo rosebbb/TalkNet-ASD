@@ -16,6 +16,8 @@ class talkNet(nn.Module):
         self.lossV = lossV().cuda()
         self.optim = torch.optim.Adam(self.parameters(), lr = lr)
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.optim, step_size = 1, gamma=lrDecay)
+        if 'fixed_input_length' in kwargs:
+            self.fixed_input_length = kwargs['fixed_input_length']
         print(time.strftime("%m-%d %H:%M:%S") + " Model para number = %.2f"%(sum(param.numel() for param in self.model.parameters()) / 1024 / 1024))
 
     def train_network(self, loader, epoch, **kwargs):
@@ -25,13 +27,31 @@ class talkNet(nn.Module):
         lr = self.optim.param_groups[0]['lr']        
         for num, (audioFeature, visualFeature, labels) in enumerate(loader, start=1):
             self.zero_grad()
+            if visualFeature.size(dim=1) == 0:
+            # print('audioFeature.shape, visualFeature.shape:', audioFeature.shape, visualFeature.shape, labels.shape)
+                print(f'{num} skipped')
+                continue
             audioEmbed = self.model.forward_audio_frontend(audioFeature[0].cuda()) # feedForward
             visualEmbed = self.model.forward_visual_frontend(visualFeature[0].cuda())
             audioEmbed, visualEmbed = self.model.forward_cross_attention(audioEmbed, visualEmbed)
             outsAV= self.model.forward_audio_visual_backend(audioEmbed, visualEmbed)  
             outsA = self.model.forward_audio_backend(audioEmbed)
             outsV = self.model.forward_visual_backend(visualEmbed)
-            labels = labels[0].reshape((-1)).cuda() # Loss
+
+            if self.fixed_input_length != 0:
+                labels = labels[0][:, -5:]
+                num_clips, frames_per_clip = labels.shape
+                labels = labels.reshape((-1)).cuda() # Loss
+
+                slice_index = torch.arange(20, 25).cuda()
+                for i in range(1, num_clips):
+                    slice_index = torch.hstack((slice_index, torch.arange((i+1)*25-5, (i+1)*25).cuda()))
+                outsAV = torch.index_select(outsAV, 0, slice_index)
+                outsA = torch.index_select(outsA, 0, slice_index)
+                outsV = torch.index_select(outsV, 0, slice_index)
+            else:
+                labels = labels[0].reshape((-1)).cuda() # Loss
+
             nlossAV, _, _, prec = self.lossAV.forward(outsAV, labels)
             nlossA = self.lossA.forward(outsA, labels)
             nlossV = self.lossV.forward(outsV, labels)
@@ -42,9 +62,11 @@ class talkNet(nn.Module):
             self.optim.step()
             index += len(labels)
             sys.stderr.write(time.strftime("%m-%d %H:%M:%S") + \
-            " [%2d] Lr: %5f, Training: %.2f%%, "    %(epoch, lr, 100 * (num / loader.__len__())) + \
-            " Loss: %.5f, ACC: %2.2f%% \r"        %(loss/(num), 100 * (top1/index)))
+            " [%2d-%2d] Lr: %5f, Training: %.2f%%, "    %(epoch, num, lr, 100 * (num / loader.__len__())) + \
+            " Loss: %.5f,"        %(loss/(num)) + \
+            "ACC: %2.2f%% \r"        %(100 * (top1/index)))
             sys.stderr.flush()  
+            print('\n')
         sys.stdout.write("\n")      
         return loss/num, lr
 
@@ -75,14 +97,19 @@ class talkNet(nn.Module):
         mAP = float(str(subprocess.run(cmd, shell=True, capture_output =True).stdout).split(' ')[2][:5])
         return mAP
 
-    def saveParameters(self, path):
-        torch.save(self.state_dict(), path)
-
+    def saveParameters(self, path, epoch, loss):
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': self.state_dict(),
+            'optimizer_state_dict': self.optim.state_dict(),
+            'loss': loss,
+            }, path)
+        
     def loadParameters(self, path):
         selfState = self.state_dict()
-        loadedState = torch.load(path)
+        loadedState = torch.load(path) #['model_state_dict']
         for name, param in loadedState.items():
-            origName = name;
+            origName = name
             if name not in selfState:
                 name = name.replace("module.", "")
                 if name not in selfState:

@@ -15,6 +15,9 @@ from scenedetect.detectors import ContentDetector
 from model.faceDetector.s3fd import S3FD
 from talkNet import talkNet
 import matplotlib.pyplot as plt
+import pandas as pd
+import json
+from ann2json import JsonFormatter
 
 warnings.filterwarnings("ignore")
 
@@ -71,13 +74,14 @@ if args.evalCol == True:
         subprocess.call(cmd, shell=True, stdout=None)
         os.remove(args.videoFolder + '/col_labels.tar.gz')	
 else:
-    args.videoName = 'test'
-    args.videoPath = glob.glob(os.path.join(args.videoFolder, args.videoName + '.*'))[0]
+    video_file = 'camera2.mp4'
+    args.videoName = video_file.split('.')[0]
+    args.videoPath = os.path.join(args.videoFolder, video_file)
     args.savePath = os.path.join(args.videoFolder, args.videoName)
 
-def scene_detect(args, load=False):
+def scene_detect(args, scenedetect=True):
     savePath = os.path.join(args.pyworkPath, 'scene.pckl')
-    if load is True:
+    if scenedetect is False:
         with open(savePath, 'rb') as f:
             sceneList = pickle.load(f)
     else:
@@ -98,9 +102,9 @@ def scene_detect(args, load=False):
             sys.stderr.write('%s - scenes detected %d\n'%(args.videoFilePath, len(sceneList)))
     return sceneList
 
-def inference_video(args, load=False):
+def inference_video(args, facedetect=False):
     savePath = os.path.join(args.pyworkPath,'faces.pckl')
-    if load is True:
+    if facedetect is False:
         with open(savePath, 'rb') as f:
             dets = pickle.load(f)
     else:
@@ -239,6 +243,7 @@ def evaluate_network(files, args, durationSet):
         os.makedirs('temp/'+fileName, exist_ok=True)
         _, audio = wavfile.read(os.path.join(args.pycropPath, fileName + '.wav'))
         audioFeature = python_speech_features.mfcc(audio, 16000, numcep = 13, winlen = 0.025, winstep = 0.010)
+        print(len(audio), ' ', len(audioFeature))
         video = cv2.VideoCapture(os.path.join(args.pycropPath, fileName + '.avi'))
         videoFeature = []
         x = 0
@@ -275,7 +280,7 @@ def evaluate_network(files, args, durationSet):
                     embedA, embedV = s.model.forward_cross_attention(embedA, embedV)
                     out = s.model.forward_audio_visual_backend(embedA, embedV)
                     score = s.lossAV.forward(out, labels = None)
-                    # print(score.shape)
+                    # print(score)
                     scores.extend(score)
             # plt.plot(range(len(scores)), scores, label = "duration in sec:"+str(duration))
             allScore.append(scores)
@@ -291,26 +296,21 @@ def evaluate_network(files, args, durationSet):
         # plt.close()
     return allScores
 
-def visualization(tracks, scores, args):
+def visualization(tracks, scores, args, write2csv=False):
     # CPU: visulize the result for video format
     flist = glob.glob(os.path.join(args.pyframesPath, '*.jpg'))
     flist.sort()
     faces = [[] for i in range(len(flist))]
-    # scores_final = []
 
+    number_of_person = 0
     for tidx, track in enumerate(tracks):
         score = scores[tidx]
-        # print('score length', score.shape)
         for fidx, frame in enumerate(track['track']['frame'].tolist()):
-            # print(score[max(fidx - 2, 0): min(fidx + 3, len(score) - 1)])
             s = score[max(fidx - 2, 0): min(fidx + 3, len(score) - 1)] # average smoothing
-            # print('score length', s.shape)
-
             s = numpy.mean(s)
-            # scores_final.append(s)
 
             faces[frame].append({'track':tidx, 'score':float(s),'s':track['proc_track']['s'][fidx], 'x':track['proc_track']['x'][fidx], 'y':track['proc_track']['y'][fidx]})
-    # print('scores_final', scores_final)
+        number_of_person = max(number_of_person, len(faces[frame]))
     # plt.plot(range(len(scores_final)), scores_final, label = "scores_final")
     # plt.axhline(y=0, color='r', linestyle='-')
     
@@ -318,21 +318,70 @@ def visualization(tracks, scores, args):
     # plt.savefig('scores_final.jpg')
     # plt.close()
 
+    file_name = args.videoName
+    frame_count = len(flist)
+    duration = frame_count/25 # 25 fps
+    json_writer = JsonFormatter(file_name, number_of_person, frame_count, duration)
+
     firstImage = cv2.imread(flist[0])
     fw = firstImage.shape[1]
     fh = firstImage.shape[0]
     vOut = cv2.VideoWriter(os.path.join(args.pyaviPath, 'video_only.avi'), cv2.VideoWriter_fourcc(*'XVID'), 25, (fw,fh))
     colorDict = {0: 0, 1: 255}
+
+    if write2csv is True:
+        # result csv file
+        frame_no = []
+        bbox_csv = {}
+        ASD_score_csv = {}
+        speakerOrNot_csv = {}
+        for iperson in range(number_of_person):
+            bbox_csv[iperson] = []
+            ASD_score_csv[iperson] = []
+            speakerOrNot_csv[iperson] = []
+
     for fidx, fname in tqdm.tqdm(enumerate(flist), total = len(flist)):
-        # print('fidx', fidx)
         image = cv2.imread(fname)
-        for face in faces[fidx]:
+        iface = -1
+        for iface, face in enumerate(faces[fidx]):
+            x1, y1 = int(face['x']-face['s']), int(face['y']-face['s'])
+            x2, y2 = int(face['x']+face['s']), int(face['y']+face['s'])
+            width, height = x2-x1, y2-y1
             clr = colorDict[int((face['score'] >= 0))]
             txt = round(face['score'], 1)
-            cv2.rectangle(image, (int(face['x']-face['s']), int(face['y']-face['s'])), (int(face['x']+face['s']), int(face['y']+face['s'])),(0,clr,255-clr),10)
-            cv2.putText(image,'%s'%(txt), (int(face['x']-face['s']), int(face['y']-face['s'])), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0,clr,255-clr),5)
+            cv2.rectangle(image, (x1, y1), (x2, y2),(0,clr,255-clr),10)
+            cv2.putText(image,'%s'%(txt), (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0,clr,255-clr),5)
+            
+            if write2csv is True:
+                bbox_face = [x1, y1, x2, y2]
+                bbox_csv[iface].append(bbox_face)
+                ASD_score_csv[iface].append(face['score'])
+                speakerOrNot_csv[iface].append(face['score'] >= 0)
+                for itemp in range(iface+1, number_of_person):
+                    bbox_csv[itemp].append([])
+                    ASD_score_csv[itemp].append('')
+                    speakerOrNot_csv[itemp].append('')
+
+            json_writer.add_seq_element(iface, fidx, x1, y1, width, height)
+
         vOut.write(image)
     vOut.release()
+
+
+    with open("sample.json", "w") as outfile:
+        json.dump(json_writer.data, outfile)
+
+    if write2csv is True:
+        header = ['frame NO'] + ['bbox_x1', 'bbox_y1', 'bbox_x2', 'bbox_y2', 'ASD score', 'speaker?'] * number_of_person
+        entry = {}
+        for iface in range(number_of_person):
+            entry['bbox_'+str(iface)] = bbox_csv[iface]
+            entry['ASD_score_'+str(iface)] = ASD_score_csv[iface]
+            entry['speakerOrNot_csv_'+str(iface)] = speakerOrNot_csv[iface]
+
+        dataframe = pd.DataFrame(entry)  
+        dataframe.to_csv(os.path.join(args.pyaviPath, 'result.csv'), index=False,sep=',')
+
     command = ("ffmpeg -y -i %s -i %s -threads %d -c:v copy -c:a copy %s -loglevel panic" % \
         (os.path.join(args.pyaviPath, 'video_only.avi'), os.path.join(args.pyaviPath, 'audio.wav'), \
         args.nDataLoaderThread, os.path.join(args.pyaviPath,'video_out.avi'))) 
@@ -432,6 +481,12 @@ def main():
     #     └── tracks.pckl (face tracking result)
     # ```
 
+    extract = False
+    scenedetect = False
+    facedetect = False
+    faceClipCrop = False
+    evaluateScore = True
+
     # Initialization 
     args.pyaviPath = os.path.join(args.savePath, 'pyavi')
     args.pyframesPath = os.path.join(args.savePath, 'pyframes')
@@ -446,37 +501,37 @@ def main():
 
     args.audioFilePath = os.path.join(args.pyaviPath, 'audio.wav')
     args.videoFilePath = os.path.join(args.pyaviPath, 'video.avi')
-    ''' No need to redo the video.avi, audio.wav, 7496 frames in /pyframes '''
-    # Extract video -- save to args.videoFilePath
-    # If duration did not set, extract the whole video, otherwise extract the video from 'args.start' to 'args.start + args.duration'
-    # if args.duration == 0:
-    #     command = ("ffmpeg -y -i %s -qscale:v 2 -threads %d -async 1 -r 25 %s -loglevel panic" % \
-    #         (args.videoPath, args.nDataLoaderThread, args.videoFilePath))
-    # else:
-    #     command = ("ffmpeg -y -i %s -qscale:v 2 -threads %d -ss %.3f -to %.3f -async 1 -r 25 %s -loglevel panic" % \
-    #         (args.videoPath, args.nDataLoaderThread, args.start, args.start + args.duration, args.videoFilePath))
-    # subprocess.call(command, shell=True, stdout=None)
-    # sys.stderr.write(time.strftime("%Y-%m-%d %H:%M:%S") + " Extract the video and save in %s \r\n" %(args.videoFilePath))
+
+    if extract == True:
+        # Extract video -- save to args.videoFilePath
+        # If duration did not set, extract the whole video, otherwise extract the video from 'args.start' to 'args.start + args.duration'
+        if args.duration == 0:
+            command = ("ffmpeg -y -i %s -qscale:v 2 -threads %d -async 1 -r 25 %s -loglevel panic" % \
+                (args.videoPath, args.nDataLoaderThread, args.videoFilePath))
+        else:
+            command = ("ffmpeg -y -i %s -qscale:v 2 -threads %d -ss %.3f -to %.3f -async 1 -r 25 %s -loglevel panic" % \
+                (args.videoPath, args.nDataLoaderThread, args.start, args.start + args.duration, args.videoFilePath))
+        subprocess.call(command, shell=True, stdout=None)
+        sys.stderr.write(time.strftime("%Y-%m-%d %H:%M:%S") + " Extract the video and save in %s \r\n" %(args.videoFilePath))
     
-    # # Extract audio -- save to args.audioFilePath
-    # command = ("ffmpeg -y -i %s -qscale:a 0 -ac 1 -vn -threads %d -ar 16000 %s -loglevel panic" % \
-    #     (args.videoFilePath, args.nDataLoaderThread, args.audioFilePath))
-    # subprocess.call(command, shell=True, stdout=None)
-    # sys.stderr.write(time.strftime("%Y-%m-%d %H:%M:%S") + " Extract the audio and save in %s \r\n" %(args.audioFilePath))
+        # Extract audio -- save to args.audioFilePath
+        command = ("ffmpeg -y -i %s -qscale:a 0 -ac 1 -vn -threads %d -ar 16000 %s -loglevel panic" % \
+            (args.videoFilePath, args.nDataLoaderThread, args.audioFilePath))
+        subprocess.call(command, shell=True, stdout=None)
+        sys.stderr.write(time.strftime("%Y-%m-%d %H:%M:%S") + " Extract the audio and save in %s \r\n" %(args.audioFilePath))
 
-    # # Extract the video frames  -- save to args.pyframesPath , all the frames
-    # command = ("ffmpeg -y -i %s -qscale:v 2 -threads %d -f image2 %s -loglevel panic" % \
-    #     (args.videoFilePath, args.nDataLoaderThread, os.path.join(args.pyframesPath, '%06d.jpg'))) 
-    # subprocess.call(command, shell=True, stdout=None)
-    # sys.stderr.write(time.strftime("%Y-%m-%d %H:%M:%S") + " Extract the frames and save in %s \r\n" %(args.pyframesPath))
+        # Extract the video frames  -- save to args.pyframesPath , all the frames
+        command = ("ffmpeg -y -i %s -qscale:v 2 -threads %d -f image2 %s -loglevel panic" % \
+            (args.videoFilePath, args.nDataLoaderThread, os.path.join(args.pyframesPath, '%06d.jpg'))) 
+        subprocess.call(command, shell=True, stdout=None)
+        sys.stderr.write(time.strftime("%Y-%m-%d %H:%M:%S") + " Extract the frames and save in %s \r\n" %(args.pyframesPath))
 
-    ''' No need to change scene detection and face detection'''
     # Scene detection for the video frames
-    scene = scene_detect(args, load=True) # just one scene
+    scene = scene_detect(args, scenedetect=scenedetect) # just one scene
     # sys.stderr.write(time.strftime("%Y-%m-%d %H:%M:%S") + " Scene detection and save in %s \r\n" %(args.pyworkPath))	
 
     # Face detection for the video frames
-    faces = inference_video(args, load=True) # faces = ret 
+    faces = inference_video(args, facedetect=facedetect) # faces = ret 
     # sys.stderr.write(time.strftime("%Y-%m-%d %H:%M:%S") + " Face detection and save in %s \r\n" %(args.pyworkPath))
 
     # # Face tracking --> Output: allTracks
@@ -494,11 +549,12 @@ def main():
 
     # # Face clips cropping
     savePath = os.path.join(args.pyworkPath, 'tracks.pckl')
-    for ii, track in tqdm.tqdm(enumerate(allTracks), total = len(allTracks)):
-        vidTracks.append(crop_video(args, track, os.path.join(args.pycropPath, '%05d'%ii)))
-    with open(savePath, 'wb') as fil:
-        pickle.dump(vidTracks, fil)
-    sys.stderr.write(time.strftime("%Y-%m-%d %H:%M:%S") + " Face Crop and saved in %s tracks \r\n" %args.pycropPath)
+    if faceClipCrop == True:
+        for ii, track in tqdm.tqdm(enumerate(allTracks), total = len(allTracks)):
+            vidTracks.append(crop_video(args, track, os.path.join(args.pycropPath, '%05d'%ii)))
+        with open(savePath, 'wb') as fil:
+            pickle.dump(vidTracks, fil)
+        sys.stderr.write(time.strftime("%Y-%m-%d %H:%M:%S") + " Face Crop and saved in %s tracks \r\n" %args.pycropPath)
     fil = open(savePath, 'rb')
     vidTracks = pickle.load(fil)
 
@@ -509,16 +565,20 @@ def main():
     # durationSet = {1,2,4,6} # To make the result more reliable
     # durationSet = {1,1,1,2,2,2,3,3,4,5,6} # Use this line can get more reliable result
     durationSet = {1} # Use this line can get more reliable result
-
-    scores = evaluate_network(files,args, durationSet)
+    
     savePath = os.path.join(args.pyworkPath, 'scores.pckl')
-    with open(savePath, 'wb') as fil:
-        pickle.dump(scores, fil)
+    if evaluateScore == True:
+        scores = evaluate_network(files,args, durationSet)
+        with open(savePath, 'wb') as fil:
+            pickle.dump(scores, fil)
+    else:
+        with open(savePath, 'rb') as f:
+            scores = pickle.load(f)
     sys.stderr.write(time.strftime("%Y-%m-%d %H:%M:%S") + " Scores extracted and saved in %s \r\n" %args.pyworkPath)
     
     # fil = open(savePath, 'rb')
     # scores = pickle.load(fil)
-    visualization(vidTracks, scores, args)	
+    visualization(vidTracks, scores, args, write2csv=False)	
     # if args.evalCol == True:
     #     evaluate_col_ASD(vidTracks, scores, args) # The columnbia video is too big for visualization. You can still add the `visualization` funcition here if you want
     #     quit()

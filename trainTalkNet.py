@@ -28,15 +28,21 @@ def main():
     # For download dataset only, for evaluation only
     parser.add_argument('--downloadAVA',     dest='downloadAVA', action='store_true', help='Only download AVA dataset and do related preprocess')
     parser.add_argument('--evaluation',      dest='evaluation', action='store_true', help='Only do evaluation by using pretrained model [pretrain_AVA.model]')
+    parser.add_argument('--fixed_input_length',     type=int,   default=0,    help='Length of clips in frames in training data')
     args = parser.parse_args()
-    # Data loader
+
+    # some hard code
+    args.dataPathAVA = '/home/xingliu/Datasets/AVADataPath'
+    args.fixed_input_length = 25
+    args.SavePath = 'exps/exp1'
+
     args = init_args(args)
 
     args.downloadAVA = True
+
     if args.downloadAVA == True:
         preprocess_AVA(args)
         quit()
-
     loader = train_loader(trialFileName = args.trainTrialAVA, \
                           audioPath      = os.path.join(args.audioPathAVA , 'train'), \
                           visualPath     = os.path.join(args.visualPathAVA, 'train'), \
@@ -75,12 +81,15 @@ def main():
     while(1):        
         loss, lr = s.train_network(epoch = epoch, loader = trainLoader, **vars(args))
         
-        if epoch % args.testInterval == 0:        
-            s.saveParameters(args.modelSavePath + "/model_%04d.model"%epoch)
-            mAPs.append(s.evaluate_network(epoch = epoch, loader = valLoader, **vars(args)))
-            print(time.strftime("%Y-%m-%d %H:%M:%S"), "%d epoch, mAP %2.2f%%, bestmAP %2.2f%%"%(epoch, mAPs[-1], max(mAPs)))
-            scoreFile.write("%d epoch, LR %f, LOSS %f, mAP %2.2f%%, bestmAP %2.2f%%\n"%(epoch, lr, loss, mAPs[-1], max(mAPs)))
-            scoreFile.flush()
+        if epoch % args.testInterval == 0:   
+            s.saveParameters(args.modelSavePath + "/model_%04d.model"%epoch, epoch, loss)
+
+            # mAPs.append(s.evaluate_network(epoch = epoch, loader = valLoader, **vars(args)))
+            # print(time.strftime("%Y-%m-%d %H:%M:%S"), "%d epoch, mAP %2.2f%%, bestmAP %2.2f%%"%(epoch, mAPs[-1], max(mAPs)))
+
+            # scoreFile.write("%d epoch, LR %f, LOSS %f, mAP %2.2f%%, bestmAP %2.2f%%\n"%(epoch, lr, loss, mAPs[-1], max(mAPs)))
+            # scoreFile.flush()
+
 
         if epoch >= args.maxEpoch:
             quit()

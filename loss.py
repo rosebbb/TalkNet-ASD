@@ -11,12 +11,16 @@ class lossAV(nn.Module):
 	def forward(self, x, labels=None):	
 		x = x.squeeze(1)
 		x = self.FC(x)
+
 		if labels == None:
 			predScore = x[:,1]
 			predScore = predScore.t()
 			predScore = predScore.view(-1).detach().cpu().numpy()
 			return predScore
 		else:
+			# print(labels.shape)
+
+				
 			nloss = self.criterion(x, labels)
 			predScore = F.softmax(x, dim = -1)
 			predLabel = torch.round(F.softmax(x, dim = -1))[:,1]

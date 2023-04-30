@@ -16,7 +16,7 @@ warnings.filterwarnings("ignore")
 hardwareWidth = 1080
 hardwareHeight = 1920
 # cam_id = 0
-cam_id = '/data/Projects/TalkNet-ASD/demo/camera2.mp4'
+cam_id = '/data/Projects/TalkNet-ASD/demo/test_2.mp4'
 # cam_id = 'videos/camera2_short.mp4'
 
 # Load Pretrained Model

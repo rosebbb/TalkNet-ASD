@@ -32,18 +32,23 @@ parser.add_argument('--minFaceSize',           type=int,   default=1,    help='M
 parser.add_argument('--cropScale',             type=float, default=0.40, help='Scale bounding box')
 
 args = parser.parse_args()
+args.pretrainModel = '/data/Projects/TalkNet-ASD/exps/exp1/model/model_0025.model'
 
 if os.path.isfile(args.pretrainModel) == False: # Download the pretrained model
     Link = "1AbN9fCf9IexMxEKXLQY2KYBlb-IhSEea"
     cmd = "gdown --id %s -O %s"%(Link, args.pretrainModel)
     subprocess.call(cmd, shell=True, stdout=None)
 
-args.audioFilePath = '/data/Projects/TalkNet-ASD/demo/test/pyavi/audio.wav'
-args.videoFilePath = '/data/Projects/TalkNet-ASD/demo/test/pyavi/video.avi'
-args.videoName = 'test'
+args.videoName = 'test_2'
+# args.audioFilePath = f'/data/Projects/TalkNet-ASD/demo/{args.videoName}/pyavi/audio.wav'
+# args.videoFilePath = f'/data/Projects/TalkNet-ASD/demo/{args.videoName}/pyavi/video.avi'
+args.audioFilePath = f'/data/Projects/TalkNet-ASD/demo/test_2/pyavi/audio.wav'
+args.videoFilePath = f'/data/Projects/TalkNet-ASD/demo/test_2/pyavi/video.avi'
 args.savePath = os.path.join(args.videoFolder, args.videoName)
 os.makedirs(args.savePath, exist_ok=True)
-os.makedirs(args.savePath+'/tracking/', exist_ok=True)
+os.makedirs(args.savePath+'/', exist_ok=True)
+video_only_path = args.savePath+'/inference_result_only_exp1.avi'
+video_out_path = args.savePath+'/inference_result_exp1.avi'
 
 DET = S3FD(device='cuda')
 
@@ -61,13 +66,6 @@ def bb_intersection_over_union(boxA, boxB, evalCol = False):
     else:
         iou = interArea / float(boxAArea + boxBArea - interArea)
     return iou
-
-def extract_MFCC(file, outPath):
-    # CPU: extract mfcc
-    sr, audio = wavfile.read(file)
-    mfcc = python_speech_features.mfcc(audio,sr) # (N_frames, 13)   [1s = 100 frames]
-    featuresPath = os.path.join(outPath, file.split('/')[-1].replace('.wav', '.npy'))
-    numpy.save(featuresPath, mfcc)
 
 def crop_face(frame, cs, bbox):
     bs  = max((bbox[3]-bbox[1]), (bbox[2]-bbox[0]))/2  # Detection box size
@@ -90,7 +88,7 @@ def asd(s, videoFeature, audioFeature):  # 1 sec of audio and video
     with torch.no_grad():
         inputA = torch.FloatTensor(audioFeature).unsqueeze(0).cuda()
         inputV = torch.FloatTensor(videoFeature).unsqueeze(0).cuda()
-        print(inputA.shape, inputV.shape)# --> torch.Size([1, 100, 13]) torch.Size([1, 25, 112, 112])
+        # print(inputA.shape, inputV.shape)# --> torch.Size([1, 100, 13]) torch.Size([1, 25, 112, 112])
         embedA = s.model.forward_audio_frontend(inputA)
         embedV = s.model.forward_visual_frontend(inputV)	
         embedA, embedV = s.model.forward_cross_attention(embedA, embedV)
@@ -102,15 +100,16 @@ def box_color(iperson):
     color = (iperson, iperson*30, iperson*2*30)
     return color
 
-def check(seq_faces, seq_boxes):
-    print('Length of seq_boxes: ', len(seq_boxes))
-    print('Length of seq_faces: ', len(seq_faces))
+# def check(seq_faces, seq_boxes):
+    # pass
+    # print('Length of seq_boxes: ', len(seq_boxes))
+    # print('Length of seq_faces: ', len(seq_faces))
 
-    for iface, seq_box in enumerate(seq_boxes):
-        print('iface, number of boxes: ', iface, len(seq_box))
+    # for iface, seq_box in enumerate(seq_boxes):
+        # print('iface, number of boxes: ', iface, len(seq_box))
 
-    for iface, seq_faces in enumerate(seq_faces):
-        print('iface, number of faces: ', iface, len(seq_faces))
+    # for iface, seq_faces in enumerate(seq_faces):
+        # print('iface, number of faces: ', iface, len(seq_faces))
 
 def process(video_file, audio_file, args):
     s = talkNet()
@@ -128,13 +127,20 @@ def process(video_file, audio_file, args):
     audioFeature = python_speech_features.mfcc(audio, 16000, numcep = 13, winlen = 0.025, winstep = 0.010) # len: 29995
 
     cap = cv2.VideoCapture(video_file)
-    iframe = 0
     max_person_id = 0
-    vOut = cv2.VideoWriter(args.savePath+'/tracking/face_tracking.avi', cv2.VideoWriter_fourcc(*'XVID'), 25, (1080,1920))
+    iframe = 0
 
     while cap.isOpened():
         print('frame: ', iframe)
         ret, frame = cap.read()
+
+        if ret is False:
+            break
+
+        if iframe == 0:
+            h, w, _ = frame.shape
+            vOut = cv2.VideoWriter(video_only_path,  cv2.VideoWriter_fourcc(*'DIVX'), 20.0,(w, h))
+
 
         # Step 1: Face detection
         imageNumpy = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB) 
@@ -155,7 +161,7 @@ def process(video_file, audio_file, args):
             iframe += 1
             continue
 
-        check(seq_faces, seq_boxes)
+        # check(seq_faces, seq_boxes)
         # Step 2: remove all discontinued faces
         iperson = 0
         while True:
@@ -167,7 +173,7 @@ def process(video_file, audio_file, args):
             if iframe - frameidx > 5: # discontinued, remove
                 seq_boxes.remove(seq_box) ### not sure
                 seq_faces.remove(seq_face) ### not sure
-                print(len(seq_boxes), num_person)
+                # print(len(seq_boxes), num_person)
                 assert(len(seq_boxes) == num_person-1)
                 num_person = len(seq_boxes)
             else:
@@ -205,38 +211,34 @@ def process(video_file, audio_file, args):
                 cv2.rectangle(frame, (int(bbox[0]),int(bbox[1])), (int(bbox[2]),int(bbox[3])), box_color(max_person_id+1),10)
                 cv2.putText(frame,'%d'%(max_person_id), (int(bbox[0]),int(bbox[1])), cv2.FONT_HERSHEY_SIMPLEX, 1.5, box_color(max_person_id+1),5)
 
-        check(seq_faces, seq_boxes)
+        # check(seq_faces, seq_boxes)
         if iframe < 25:
             iframe+=1
             continue
         for iface, seq_box in enumerate(seq_boxes):
             if len(seq_box) == 25:
-                print('asd activated ', iframe)
+                # print('asd activated ', iframe)
                 videoFeature_seq = seq_faces[iface]
                 videoFeature_seq = numpy.array(videoFeature_seq)
                 videoFeature_seq = videoFeature_seq.squeeze()
                 audioFeature_seq = audioFeature[(iframe-25)*4:(iframe-1)*4+4]
                 scores = asd(s, videoFeature_seq, audioFeature_seq)
-                print('person id, scores ', seq_box[-1]['id'], scores)
+                # print('person id, scores ', seq_box[-1]['id'], scores)
                 bbox = seq_box[-1]['bbox']
                 final_score = np.mean(scores[-5:])
                 if final_score >= 0:
                     cv2.rectangle(frame, (int(bbox[0]),int(bbox[1])), (int(bbox[2]),int(bbox[3])), (0, 255, 0),15)
 
+        vOut.write(frame)
         cv2.imwrite(f'{args.savePath}/tracking/{iframe}.jpg', frame)
         iframe+=1
+    vOut.release()
+    cap.release()
+    command = ("ffmpeg -y -i %s -i %s -threads %d -c:v copy -c:a copy %s -loglevel panic" % \
+        (video_only_path, args.audioFilePath, \
+        args.nDataLoaderThread, video_out_path)) 
+    output = subprocess.call(command, shell=True, stdout=None)
 
-        # vOut.write(frame)
-
-def get_frame(cam_id):
-    cap = cv2.VideoCapture(cam_id)
-    iframe = 0
-    max_person_id = 0
-    vOut = cv2.VideoWriter(args.savePath+'/tracking/face_tracking.avi', cv2.VideoWriter_fourcc(*'XVID'), 25, (1080,1920))
-
-    while cap.isOpened():
-        print('frame: ', iframe)
-        ret, frame = cap.read()
 # Main function
 def main():
     # Active Speaker Detection by TalkNet

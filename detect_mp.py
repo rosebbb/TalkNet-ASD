@@ -147,7 +147,8 @@ def detect_video_realtime_mp(cam_id, output_path, show=True, realtime=False):
                 if cv2.waitKey(25) & 0xFF == ord("q"):
                     cv2.destroyAllWindows()
                     break
-
+            else:
+                cv2.imwrite(f'multiprocess_result/exp1_detectonly/{frame_idx}.jpg', frame)
         while started == False and Original_frames.qsize()>0:
             if Processed_frames.qsize() == 0:
                 time.sleep(0.1)
@@ -177,4 +178,4 @@ if __name__ == "__main__":
     cam_id = '/data/Projects/TalkNet-ASD/demo/test/pyavi/video.avi'
     # cam_id= 1
     output_path = './temp/'
-    detect_video_realtime_mp(cam_id, output_path, show=True, realtime=False)
+    detect_video_realtime_mp(cam_id, output_path, show=False, realtime=False)
